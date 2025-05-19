@@ -233,7 +233,7 @@ def get_libtorch_install_command(
     desired_cuda: str,
     libtorch_config: str,
 ) -> str:
-    prefix = "libtorch" if os != WINDOWS else "libtorch-win"
+    prefix = "libtorch" if not (os in (WINDOWS, WINDOWS_ARM64)) else "libtorch-win"
     _libtorch_variant = (
         f"{libtorch_variant}-{libtorch_config}"
         if libtorch_config == "debug"
@@ -269,6 +269,20 @@ def get_libtorch_install_command(
             if libtorch_config == "debug"
             else f"{prefix}-shared-with-deps-latest.zip"
         )
+    elif os == WINDOWS_ARM64 and (channel in (RELEASE, TEST)):
+        arch = "arm64"
+        build_name = (
+            f"{prefix}-{arch}-shared-with-deps-debug-{CURRENT_VERSION}%2B{desired_cuda}.zip"
+            if libtorch_config == "debug"
+            else f"{prefix}-{arch}-shared-with-deps-{CURRENT_VERSION}%2B{desired_cuda}.zip"
+        )
+    elif os == WINDOWS_ARM64 and channel == NIGHTLY:
+        arch = "arm64"
+        build_name = (
+            f"{prefix}-{arch}-shared-with-deps-debug-latest.zip"
+            if libtorch_config == "debug"
+            else f"{prefix}-{arch}-shared-with-deps-latest.zip"
+    )
 
     return f"{get_base_download_url_for_repo('libtorch', channel, gpu_arch_type, desired_cuda)}/{build_name}"
 
@@ -290,6 +304,28 @@ def get_wheel_install_command(
             raise ValueError(
                 "Split build is not supported for this configuration. It is only supported for CUDA 11.8, 12.4, 12.6 on Linux nightly builds."  # noqa: E501
             )
+#     if (
+#         channel == RELEASE
+#         and (not use_only_dl_pytorch_org)
+#         and (
+#             (gpu_arch_version == STABLE_CUDA_VERSIONS[channel] and os == LINUX)
+#             or (gpu_arch_type == CPU and os in [WINDOWS, MACOS_ARM64])
+#             or (os == LINUX_AARCH64)
+#         )
+#     ):
+#         return f"{WHL_INSTALL_BASE} {PACKAGES_TO_INSTALL_WHL}"
+#     else:
+#         whl_install_command = ""
+#         if os == WINDOWS_ARM64:
+#             # winarm64 has only nightly torch package for now
+#             whl_install_command = (
+# f"{WHL_INSTALL_BASE} --pre {PACKAGES_TO_INSTALL_WHL_WIN_ARM64}"  # noqa: E501
+#             )
+#         elif channel == "nightly":
+#             whl_install_command = f"{WHL_INSTALL_BASE} --pre {PACKAGES_TO_INSTALL_WHL}"
+#         else:
+#             whl_install_command = f"{WHL_INSTALL_BASE} {PACKAGES_TO_INSTALL_WHL}"
+#         return f"{whl_install_command} --index-url {get_base_download_url_for_repo('whl', channel, gpu_arch_type, desired_cuda)}"  # noqa: E501
     if (
         channel == RELEASE
         and (not use_only_dl_pytorch_org)
@@ -300,19 +336,16 @@ def get_wheel_install_command(
         )
     ):
         return f"{WHL_INSTALL_BASE} {PACKAGES_TO_INSTALL_WHL}"
+    elif os == WINDOWS_ARM64:
+        whl_install_command = f"{WHL_INSTALL_BASE} --pre {PACKAGES_TO_INSTALL_WHL_WIN_ARM64}"
+        return f"{whl_install_command} --index-url {get_base_download_url_for_repo('whl', channel, gpu_arch_type, desired_cuda)}" 
     else:
-        whl_install_command = ""
-        if os == WINDOWS_ARM64:
-            # winarm64 has only nightly torch package for now
-            whl_install_command = (
-f"{WHL_INSTALL_BASE} --pre {PACKAGES_TO_INSTALL_WHL_WIN_ARM64}"  # noqa: E501
-            )
-        elif channel == "nightly":
-            whl_install_command = f"{WHL_INSTALL_BASE} --pre {PACKAGES_TO_INSTALL_WHL}"
-        else:
-            whl_install_command = f"{WHL_INSTALL_BASE} {PACKAGES_TO_INSTALL_WHL}"
-        return f"{whl_install_command} --index-url {get_base_download_url_for_repo('whl', channel, gpu_arch_type, desired_cuda)}"  # noqa: E501
-
+        whl_install_command = (
+            f"{WHL_INSTALL_BASE} --pre {PACKAGES_TO_INSTALL_WHL}"
+            if channel == "nightly"
+            else f"{WHL_INSTALL_BASE} {PACKAGES_TO_INSTALL_WHL}"
+        )
+        return f"{whl_install_command} --index-url {get_base_download_url_for_repo('whl', channel, gpu_arch_type, desired_cuda)}" 
 
 def generate_libtorch_matrix(
     os: str,
@@ -344,7 +377,7 @@ def generate_libtorch_matrix(
             arches += ROCM_ARCHES
 
     if abi_versions is None:
-        if os == WINDOWS:
+        if os in (WINDOWS, WINDOWS_ARM64):
             abi_versions = [RELEASE, DEBUG]
         elif os == LINUX:
             abi_versions = [CXX11_ABI]
@@ -370,8 +403,8 @@ def generate_libtorch_matrix(
                 gpu_arch_version = "" if arch_version == CPU else arch_version
 
                 desired_cuda = translate_desired_cuda(gpu_arch_type, gpu_arch_version)
-                devtoolset = abi_version if os != WINDOWS else ""
-                libtorch_config = abi_version if os == WINDOWS else ""
+                devtoolset = abi_version if not (os in (WINDOWS, WINDOWS_ARM64)) else ""
+                libtorch_config = abi_version if os in (WINDOWS, WINDOWS_ARM64) else ""
                 ret.append(
                     {
                         "gpu_arch_type": gpu_arch_type,
@@ -382,7 +415,7 @@ def generate_libtorch_matrix(
                         "devtoolset": devtoolset,
                         "container_image": (
                             LIBTORCH_CONTAINER_IMAGES[(arch_version, abi_version)]
-                            if os != WINDOWS
+                            if not (os in (WINDOWS, WINDOWS_ARM64))
                             else ""
                         ),
                         "package_type": "libtorch",
